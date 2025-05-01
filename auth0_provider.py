@@ -284,7 +284,7 @@ def main():
         veza_con = OAAClient(url=veza_url, api_key=veza_api_key)
 
         # Create Auth0 provider in Veza with proper naming
-        provider_name = "Auth0-Provider"
+        provider_name = "Auth0"
         logger.info("Creating Auth0 provider in Veza")
         idp = CustomIdPProvider("Auth0", idp_type="auth0", domain=os.getenv("AUTH0_DOMAIN"))
 
