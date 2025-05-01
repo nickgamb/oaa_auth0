@@ -1,0 +1,39 @@
+[project]
+name = "oaaclient"
+description = "Veza Open Authorization API (OAA) Auth0 Integration"
+authors = [
+  { name="Veza Technologies Inc.", email="oaa_dev@veza.com" },
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+dependencies = [
+  "requests >= 2.27, < 3"
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+  "pytest-cov",
+  "pytest-timeout",
+  "flake8"
+]
+
+[project.urls]
+"homepage" = "https://github.com/veza/oaaclient-py"
+"repository" = "https://github.com/veza/oaaclient-py"
+
+[project.scripts]
+oaaclient = "oaaclient.client:main"
+oaaclient-report-builder = "oaaclient.client:report_builder_entrypoint"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["oaaclient"]
+
+[tool.pytest.ini_options]
+addopts = "-v --cov oaaclient --cov-report html --cov-report term"
