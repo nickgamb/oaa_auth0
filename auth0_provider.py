@@ -348,7 +348,7 @@ def main():
         for user in auth0_users:
             # Create user in Veza
             veza_user = idp.add_user(
-                user.get("user_id"),
+                user.get("name"),
                 full_name=user.get("name"),
                 email=user.get("email")
             )
@@ -367,7 +367,7 @@ def main():
                 app_id = permission.get("resource_server_identifier")
                 if app_id:
                     # Create app assignment with detailed permission information
-                    assignment_id = f"{user.get('user_id')}_{app_id}_{permission.get('permission_name')}"
+                    assignment_id = f"{user.get('name')}_{app_id}_{permission.get('permission_name')}"
                     veza_user.add_app_assignment(
                         id=assignment_id,
                         name=permission.get("permission_name"),
