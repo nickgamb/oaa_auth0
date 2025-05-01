@@ -16,6 +16,66 @@ Example:
     ./auth0_provider.py
     ```
 
+Improvement Ideas:
+1. Permission Granularity
+   - Add support for more detailed permission types (read, write, delete, admin)
+   - Map Auth0 permission patterns to standardized Veza permissions
+   - Add permission categories for better organization
+
+2. API Enhancements
+   - Add support for API endpoints and methods
+   - Track API usage statistics
+   - Model API relationships and dependencies
+   - Add API versioning information
+
+3. Role-Based Access
+   - Implement hierarchical role modeling
+   - Add role inheritance tracking
+   - Support for role templates
+   - Role-based permission analysis
+
+4. User Context
+   - Add user login history
+   - Track user device information
+   - Model user location data
+   - Add user risk scoring
+
+5. Organization Structure
+   - Model organizational hierarchy
+   - Track department relationships
+   - Add business unit mapping
+   - Support for multiple domains
+
+6. Security Features
+   - Add MFA status tracking
+   - Model security policies
+   - Track security events
+   - Add risk assessment data
+
+7. Integration Enhancements
+   - Support for custom rules
+   - Add hook integration tracking
+   - Model external service connections
+   - Add integration status monitoring
+
+8. Performance Optimizations
+   - Implement caching for frequently accessed data
+   - Add batch processing for large datasets
+   - Optimize API calls
+   - Add progress tracking for long operations
+
+9. Reporting
+   - Add permission usage analytics
+   - Generate access pattern reports
+   - Track permission changes over time
+   - Create security compliance reports
+
+10. Error Handling
+    - Improve error recovery
+    - Add detailed error logging
+    - Implement retry strategies
+    - Add error notification system
+
 Copyright 2024 Veza Technologies Inc.
 
 Use of this source code is governed by the MIT
@@ -36,6 +96,18 @@ from dotenv import load_dotenv
 from typing import Dict, List, Any
 import requests
 import time
+import logging
+from datetime import datetime
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 def get_auth0_client():
     """Initialize and return an Auth0 management API client."""
@@ -176,134 +248,202 @@ def fetch_role_permissions(auth0_client, role_id: str) -> List[Dict[str, Any]]:
         print(f"Error fetching permissions for role {role_id}: {e}")
         return []
 
+def retry_with_backoff(func, max_retries=3, initial_delay=1):
+    """Decorator to retry a function with exponential backoff."""
+    def wrapper(*args, **kwargs):
+        delay = initial_delay
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise
+                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}. Retrying in {delay} seconds...")
+                time.sleep(delay)
+                delay *= 2
+    return wrapper
+
 def main():
-    # Load environment variables
-    load_dotenv()
+    try:
+        # Load environment variables
+        load_dotenv()
+        logger.info("Environment variables loaded")
 
-    # Initialize Auth0 client
-    auth0_client = get_auth0_client()
+        # Initialize Auth0 client
+        auth0_client = get_auth0_client()
+        logger.info("Auth0 client initialized")
 
-    # Initialize Veza client
-    veza_api_key = os.getenv("VEZA_API_KEY")
-    veza_url = os.getenv("VEZA_URL")
-    if not veza_api_key or not veza_url:
-        print("Unable to load VEZA_API_KEY and VEZA_URL from environment")
-        sys.exit(1)
+        # Initialize Veza client
+        veza_api_key = os.getenv("VEZA_API_KEY")
+        veza_url = os.getenv("VEZA_URL")
+        if not veza_api_key or not veza_url:
+            logger.error("Missing required Veza environment variables")
+            sys.exit(1)
 
-    veza_con = OAAClient(url=veza_url, api_key=veza_api_key)
+        logger.info("Initializing Veza client")
+        veza_con = OAAClient(url=veza_url, api_key=veza_api_key)
 
-    # Create Auth0 provider in Veza
-    idp = CustomIdPProvider("Auth0", idp_type="auth0", domain=os.getenv("AUTH0_DOMAIN"))
+        # Create Auth0 provider in Veza with proper naming
+        provider_name = "Auth0-Provider"
+        logger.info("Creating Auth0 provider in Veza")
+        idp = CustomIdPProvider("Auth0", idp_type="auth0", domain=os.getenv("AUTH0_DOMAIN"))
 
-    # Define custom properties for Auth0-specific attributes
-    idp.property_definitions.define_user_property("last_login", OAAPropertyType.STRING)
-    idp.property_definitions.define_user_property("logins_count", OAAPropertyType.NUMBER)
-    idp.property_definitions.define_user_property("blocked", OAAPropertyType.BOOLEAN)
-    idp.property_definitions.define_user_property("email_verified", OAAPropertyType.BOOLEAN)
-    idp.property_definitions.define_user_property("connection", OAAPropertyType.STRING)
-    idp.property_definitions.define_user_property("organization", OAAPropertyType.STRING)
-
-    # Fetch and process Auth0 resource servers (APIs)
-    resource_servers = fetch_auth0_resource_servers(auth0_client)
-    api_applications = {}
-    for api in resource_servers:
-        app_name = api.get("name")
-        app_id = api.get("identifier", "")
-        idp.add_app(app_id, app_name)
-
-    # Fetch and process Auth0 clients (applications)
-    clients = fetch_auth0_clients(auth0_client)
-    client_applications = {}
-    for client in clients:
-        app_name = client.get("name")
-        app_id = client.get("client_id", "")
-        idp.add_app(app_id, app_name)
-
-    # Fetch and process Auth0 organizations
-    organizations = fetch_auth0_organizations(auth0_client)
-    for org in organizations:
-        idp.add_group(org.get("name"), full_name=org.get("display_name", ""))
-
-    # Fetch and process Auth0 connections
-    connections = fetch_auth0_connections(auth0_client)
-    for conn in connections:
-        idp.add_group(conn.get("name"), full_name=conn.get("display_name", ""))
-
-    # Fetch and process Auth0 users
-    auth0_users = fetch_auth0_users(auth0_client)
-    for user in auth0_users:
-        # Create user in Veza
-        veza_user = idp.add_user(
-            user.get("user_id"),
-            full_name=user.get("name"),
-            email=user.get("email")
-        )
-
-        # Set Auth0-specific properties
-        veza_user.set_property("last_login", user.get("last_login"))
-        veza_user.set_property("logins_count", user.get("logins_count", 0))
-        veza_user.set_property("blocked", user.get("blocked", False))
-        veza_user.set_property("email_verified", user.get("email_verified", False))
-        veza_user.set_property("connection", user.get("connection", ""))
-        veza_user.set_property("organization", user.get("organization", ""))
-
-        # Add user permissions
-        permissions = fetch_user_permissions(auth0_client, user.get("user_id"))
-        for permission in permissions:
-            app_id = permission.get("resource_server_identifier")
-            if app_id:
-                veza_user.add_app_assignment(
-                    id=f"{user.get('user_id')}_{app_id}",
-                    name=permission.get("permission_name"),
-                    app_id=app_id
-                )
-
-    # Fetch and process Auth0 roles
-    auth0_roles = fetch_auth0_roles(auth0_client)
-    for role in auth0_roles:
-        if isinstance(role, dict):
-            # Create role as a group in Veza
-            veza_role = idp.add_group(role.get("name", ""), full_name=role.get("description", ""))
+        # Define custom properties for Auth0-specific attributes
+        idp.property_definitions.define_user_property("last_login", OAAPropertyType.STRING)
+        idp.property_definitions.define_user_property("logins_count", OAAPropertyType.NUMBER)
+        idp.property_definitions.define_user_property("blocked", OAAPropertyType.BOOLEAN)
+        idp.property_definitions.define_user_property("email_verified", OAAPropertyType.BOOLEAN)
+        idp.property_definitions.define_user_property("connection", OAAPropertyType.STRING)
+        idp.property_definitions.define_user_property("organization", OAAPropertyType.STRING)
+        
+        # Fetch and process Auth0 resource servers (APIs)
+        logger.info("Fetching Auth0 resource servers")
+        resource_servers = fetch_auth0_resource_servers(auth0_client)
+        logger.info(f"Found {len(resource_servers)} resource servers")
+        api_applications = {}
+        for api in resource_servers:
+            app_name = api.get("name")
+            app_id = api.get("identifier", "")
+            api_app = idp.add_app(app_id, app_name)
             
-            # Add role permissions
-            permissions = fetch_role_permissions(auth0_client, role.get("id", ""))
+            # Store API permissions for later use
+            api_applications[app_id] = {
+                "name": app_name,
+                "permissions": api.get("scopes", []),
+                "description": api.get("description", "")
+            }
+
+        # Fetch and process Auth0 clients (applications)
+        logger.info("Fetching Auth0 clients")
+        clients = fetch_auth0_clients(auth0_client)
+        logger.info(f"Found {len(clients)} clients")
+        client_applications = {}
+        for client in clients:
+            app_name = client.get("name")
+            app_id = client.get("client_id", "")
+            client_app = idp.add_app(app_id, app_name)
+            client_applications[app_id] = {
+                "name": app_name,
+                "description": client.get("description", "")
+            }
+
+        # Fetch and process Auth0 organizations
+        logger.info("Fetching Auth0 organizations")
+        organizations = fetch_auth0_organizations(auth0_client)
+        logger.info(f"Found {len(organizations)} organizations")
+        for org in organizations:
+            idp.add_group(org.get("name"), full_name=org.get("display_name", ""))
+
+        # Fetch and process Auth0 connections
+        logger.info("Fetching Auth0 connections")
+        connections = fetch_auth0_connections(auth0_client)
+        logger.info(f"Found {len(connections)} connections")
+        for conn in connections:
+            idp.add_group(conn.get("name"), full_name=conn.get("display_name", ""))
+
+        # Fetch and process Auth0 users
+        logger.info("Fetching Auth0 users")
+        auth0_users = fetch_auth0_users(auth0_client)
+        logger.info(f"Found {len(auth0_users)} users")
+        for user in auth0_users:
+            # Create user in Veza
+            veza_user = idp.add_user(
+                user.get("user_id"),
+                full_name=user.get("name"),
+                email=user.get("email")
+            )
+
+            # Set Auth0-specific properties
+            veza_user.set_property("last_login", user.get("last_login"))
+            veza_user.set_property("logins_count", user.get("logins_count", 0))
+            veza_user.set_property("blocked", user.get("blocked", False))
+            veza_user.set_property("email_verified", user.get("email_verified", False))
+            veza_user.set_property("connection", user.get("connection", ""))
+            veza_user.set_property("organization", user.get("organization", ""))
+
+            # Add user permissions
+            permissions = fetch_user_permissions(auth0_client, user.get("user_id"))
             for permission in permissions:
                 app_id = permission.get("resource_server_identifier")
                 if app_id:
-                    veza_role.add_app_assignment(
-                        id=f"{role.get('name')}_{app_id}",
+                    # Create app assignment with detailed permission information
+                    assignment_id = f"{user.get('user_id')}_{app_id}_{permission.get('permission_name')}"
+                    veza_user.add_app_assignment(
+                        id=assignment_id,
                         name=permission.get("permission_name"),
                         app_id=app_id
                     )
-        else:
-            print(f"Warning: Skipping invalid role format: {role}")
 
-    # Push the metadata to Veza
-    provider_name = "Auth0-Provider"
-    provider = veza_con.get_provider(provider_name)
-    if provider:
-        print("-- Found existing provider")
-    else:
-        print(f"++ Creating Provider {provider_name}")
-        provider = veza_con.create_provider(provider_name, "identity_provider")
-    print(f"-- Provider: {provider['name']} ({provider['id']})")
+        # Fetch and process Auth0 roles
+        logger.info("Fetching Auth0 roles")
+        auth0_roles = fetch_auth0_roles(auth0_client)
+        logger.info(f"Found {len(auth0_roles)} roles")
+        for role in auth0_roles:
+            if isinstance(role, dict):
+                # Create role as a group in Veza
+                veza_role = idp.add_group(role.get("name", ""), full_name=role.get("description", ""))
+                
+                # Add role permissions
+                permissions = fetch_role_permissions(auth0_client, role.get("id", ""))
+                for permission in permissions:
+                    app_id = permission.get("resource_server_identifier")
+                    if app_id:
+                        # Create app assignment with detailed permission information
+                        assignment_id = f"{role.get('name')}_{app_id}_{permission.get('permission_name')}"
+                        veza_role.add_app_assignment(
+                            id=assignment_id,
+                            name=permission.get("permission_name"),
+                            app_id=app_id
+                        )
+            else:
+                print(f"Warning: Skipping invalid role format: {role}")
 
-    try:
-        response = veza_con.push_application(
-            provider_name,
-            data_source_name=f"{idp.name} ({idp.idp_type})",
-            application_object=idp,
-            save_json=True
-        )
-        if response.get("warnings", None):
-            print("-- Push succeeded with warnings:")
-            for e in response["warnings"]:
-                print(f"  - {e}")
-    except OAAClientError as e:
-        print(f"-- Error: {e.error}: {e.message} ({e.status_code})", file=sys.stderr)
-        if hasattr(e, "details"):
-            for d in e.details:
-                print(f"  -- {d}", file=sys.stderr)
+        # Push the metadata to Veza
+        logger.info(f"Checking for existing provider: {provider_name}")
+        
+        @retry_with_backoff
+        def get_or_create_provider():
+            provider = veza_con.get_provider(provider_name)
+            if provider:
+                logger.info("Found existing provider")
+            else:
+                logger.info(f"Creating new provider: {provider_name}")
+                provider = veza_con.create_provider(provider_name, "identity_provider")
+            return provider
+
+        provider = get_or_create_provider()
+        logger.info(f"Provider: {provider['name']} ({provider['id']})")
+
+        @retry_with_backoff
+        def push_to_veza():
+            logger.info("Pushing metadata to Veza")
+            # Use the correct data source name format
+            response = veza_con.push_application(
+                provider_name,
+                data_source_name=f"{idp.name} ({idp.idp_type})",
+                application_object=idp,
+                save_json=True
+            )
+            if response.get("warnings", None):
+                logger.warning("Push succeeded with warnings:")
+                for e in response["warnings"]:
+                    logger.warning(f"  - {e}")
+            return response
+
+        try:
+            response = push_to_veza()
+            logger.info("Successfully pushed metadata to Veza")
+        except OAAClientError as e:
+            logger.error(f"Error pushing to Veza: {e.error}: {e.message} ({e.status_code})")
+            if hasattr(e, "details"):
+                for d in e.details:
+                    logger.error(f"  -- {d}")
+            raise
+
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        logger.error("Stack trace:", exc_info=True)
+        sys.exit(1)
 
 if __name__ == '__main__':
     main() 
