@@ -1,6 +1,6 @@
 # Auth0 Integration for Veza Open Authorization API
 
-This integration maps Auth0 identity and access management data to Veza's Open Authorization API (OAA). It provides a comprehensive view of Auth0 users, roles, permissions, and applications within the Veza platform.
+This integration maps Auth0 identity and access management data to Veza's Open Authorization API (OAA), enabling comprehensive visualization and analysis of Auth0-based applications and APIs.
 
 ## Key Features
 
@@ -27,20 +27,20 @@ This integration maps Auth0 identity and access management data to Veza's Open A
 
 ## Screenshots
 
+### Custom OAA Integration in Veza
 ![User Permissions View](screenshots/screenshot1.png)
-*User permissions and role assignments in Veza*
 
+### Veza Graph Query
 ![Role-based Access](screenshots/screenshot2.png)
-*Role-based permissions and assignments*
 
+### Auth0 Domains, Users, Groups, Apps, and Permissions in Veza Graph
 ![Application Access](screenshots/screenshot3.png)
-*Application access and permission overview*
 
+### Filter based on Auth0 data in Veza Graph
 ![Permission Details](screenshots/screenshot4.png)
-*Detailed permission assignments*
 
+### Visualize fine grained access in Veza for all applications/API's built using Auth0
 ![User-Role Relationships](screenshots/screenshot5.png)
-*User-role-permission relationships*
 
 ## Requirements
 
