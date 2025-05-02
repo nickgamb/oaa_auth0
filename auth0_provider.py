@@ -84,7 +84,7 @@ https://opensource.org/licenses/MIT.
 """
 
 from oaaclient.client import OAAClient, OAAClientError
-from oaaclient.templates import CustomIdPProvider, OAAPropertyType, CustomApplication, OAAPermission
+from oaaclient.templates import CustomIdPProvider, OAAPropertyType, CustomApplication, OAAPermission, OAATemplateException
 from auth0.authentication import GetToken
 from auth0.management import Auth0
 from auth0.exceptions import Auth0Error
@@ -295,37 +295,32 @@ def main():
         idp.property_definitions.define_user_property("email_verified", OAAPropertyType.BOOLEAN)
         idp.property_definitions.define_user_property("connection", OAAPropertyType.STRING)
         idp.property_definitions.define_user_property("organization", OAAPropertyType.STRING)
-        
+
+        # Define app properties
+        idp.property_definitions.define_app_property("description", OAAPropertyType.STRING)
+        idp.property_definitions.define_app_property("type", OAAPropertyType.STRING)
+
         # Fetch and process Auth0 resource servers (APIs)
         logger.info("Fetching Auth0 resource servers")
         resource_servers = fetch_auth0_resource_servers(auth0_client)
         logger.info(f"Found {len(resource_servers)} resource servers")
-        api_applications = {}
         for api in resource_servers:
-            app_name = api.get("name")
             app_id = api.get("identifier", "")
-            api_app = idp.add_app(app_id, app_name)
-            
-            # Store API permissions for later use
-            api_applications[app_id] = {
-                "name": app_name,
-                "permissions": api.get("scopes", []),
-                "description": api.get("description", "")
-            }
+            app_name = api.get("name")
+            veza_app = idp.add_app(app_id, app_name)
+            veza_app.description = api.get("description", "")
+            veza_app.set_property("type", "api")
 
         # Fetch and process Auth0 clients (applications)
         logger.info("Fetching Auth0 clients")
         clients = fetch_auth0_clients(auth0_client)
         logger.info(f"Found {len(clients)} clients")
-        client_applications = {}
         for client in clients:
-            app_name = client.get("name")
             app_id = client.get("client_id", "")
-            client_app = idp.add_app(app_id, app_name)
-            client_applications[app_id] = {
-                "name": app_name,
-                "description": client.get("description", "")
-            }
+            app_name = client.get("name")
+            veza_app = idp.add_app(app_id, app_name)
+            veza_app.description = client.get("description", "")
+            veza_app.set_property("type", "client")
 
         # Fetch and process Auth0 organizations
         logger.info("Fetching Auth0 organizations")
@@ -346,11 +341,12 @@ def main():
         auth0_users = fetch_auth0_users(auth0_client)
         logger.info(f"Found {len(auth0_users)} users")
         for user in auth0_users:
-            # Create user in Veza
+            # Create user in Veza using user_id as identity
             veza_user = idp.add_user(
-                user.get("name"),
+                name=user.get("name"),
                 full_name=user.get("name"),
-                email=user.get("email")
+                email=user.get("email"),
+                identity=user.get("user_id")  # Use Auth0 user_id as identity
             )
 
             # Set Auth0-specific properties
@@ -365,14 +361,21 @@ def main():
             permissions = fetch_user_permissions(auth0_client, user.get("user_id"))
             for permission in permissions:
                 app_id = permission.get("resource_server_identifier")
-                if app_id:
-                    # Create app assignment with detailed permission information
-                    assignment_id = f"{user.get('name')}_{app_id}_{permission.get('permission_name')}"
-                    veza_user.add_app_assignment(
-                        id=assignment_id,
-                        name=permission.get("permission_name"),
-                        app_id=app_id
-                    )
+                permission_name = permission.get("permission_name")
+                if app_id and permission_name:
+                    # Create unique app assignment ID using user_id, app_id, and permission_name
+                    assignment_id = f"{user.get('user_id')}_{app_id}_{permission_name}"
+                    try:
+                        veza_user.add_app_assignment(
+                            id=assignment_id,
+                            name=permission_name,
+                            app_id=app_id
+                        )
+                    except OAATemplateException as e:
+                        if "already exists" in str(e):
+                            logger.warning(f"Skipping duplicate app assignment {assignment_id} for user {user.get('name')}")
+                            continue
+                        raise
 
         # Fetch and process Auth0 roles
         logger.info("Fetching Auth0 roles")
@@ -380,21 +383,32 @@ def main():
         logger.info(f"Found {len(auth0_roles)} roles")
         for role in auth0_roles:
             if isinstance(role, dict):
-                # Create role as a group in Veza
-                veza_role = idp.add_group(role.get("name", ""), full_name=role.get("description", ""))
+                # Create role as a group in Veza using role ID as identity
+                veza_role = idp.add_group(
+                    name=role.get("name", ""),
+                    full_name=role.get("description", ""),
+                    identity=role.get("id")  # Use Auth0 role ID as identity
+                )
                 
                 # Add role permissions
                 permissions = fetch_role_permissions(auth0_client, role.get("id", ""))
                 for permission in permissions:
                     app_id = permission.get("resource_server_identifier")
-                    if app_id:
-                        # Create app assignment with detailed permission information
-                        assignment_id = f"{role.get('name')}_{app_id}_{permission.get('permission_name')}"
-                        veza_role.add_app_assignment(
-                            id=assignment_id,
-                            name=permission.get("permission_name"),
-                            app_id=app_id
-                        )
+                    permission_name = permission.get("permission_name")
+                    if app_id and permission_name:
+                        # Create unique app assignment ID using role_id, app_id, and permission_name
+                        assignment_id = f"{role.get('id')}_{app_id}_{permission_name}"
+                        try:
+                            veza_role.add_app_assignment(
+                                id=assignment_id,
+                                name=permission_name,
+                                app_id=app_id
+                            )
+                        except OAATemplateException as e:
+                            if "already exists" in str(e):
+                                logger.warning(f"Skipping duplicate app assignment {assignment_id} for role {role.get('name')}")
+                                continue
+                            raise
             else:
                 print(f"Warning: Skipping invalid role format: {role}")
 
